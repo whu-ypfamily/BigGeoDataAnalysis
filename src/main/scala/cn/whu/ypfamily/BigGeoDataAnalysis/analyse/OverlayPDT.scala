@@ -46,24 +46,19 @@ object OverlayPDT {
     // 设置Spark参数生成Spark上下文
     val sparkConf = new SparkConf().setAppName("OverlayPDT")
     val sc = new SparkContext(sparkConf)
-
     // 设置HBase参数
     val hbaseConf = HBaseConfiguration.create()
     hbaseConf.set("fs.defaultFS", hdfsPath)
     hbaseConf.set("hbase.zookeeper.quorum", serverList)
     hbaseConf.set("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem")
 
+    // 从HBase读取DLTB数据
     var rddDLTB: SpatialRDD = null
-
-    // 如果不进行重分区
-    if (args.length == 11) {
+    if (args.length == 11) { // 如果不进行重分区
       // 从HBase读取DLTB数据
       hbaseConf.set(TableInputFormat.INPUT_TABLE, dltbTableName)
       rddDLTB = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, dltbGeoColumnFamily, dltbGeoColumn)
-    }
-
-    // 如果进行重分区
-    if (args.length == 12) {
+    } else if (args.length == 12) { // 如果进行重分区
       // 获得参数
       val partitionNum = args(11).toInt
       // 从HBase读取DLTB数据
@@ -80,8 +75,7 @@ object OverlayPDT {
         // 从HBase读取PDT数据
         hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
         rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn)
-      }
-      if (args.length == 12) {   // 如果进行重分区
+      } else if (args.length == 12) { // 如果进行重分区
         // 获得参数
         val partitionNum = args(11).toInt
         // 从HBase读取PDT数据
@@ -91,7 +85,6 @@ object OverlayPDT {
       // 从HBase读取PDT数据进行广播
       val arrPDT = rddPDT.collect()
       val bcPDT = sc.broadcast(arrPDT)
-
       // DLTB叠加PDT
       rddDltbWithPdjb = rddDltbWithPdjb.map(dltbWithPdjb => {
         var pdjb = ""
