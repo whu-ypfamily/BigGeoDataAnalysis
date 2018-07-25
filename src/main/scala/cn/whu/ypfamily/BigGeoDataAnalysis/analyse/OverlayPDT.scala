@@ -10,14 +10,15 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object OverlayPDT {
   def main(args: Array[String]): Unit = {
-    if (args.length < 10 || args.length > 12) {
+    if (args.length < 11 || args.length > 13) {
       println("input " +
         "*<hdfs path> " +
         "*<zookeeper server list> " +
         "*<DLTB table name> " +
         "*<DLTB geometry column family name> " +
         "*<DLTB geometry column name> " +
-        "*<PDT table name> " +
+        "*<PDT table name prefix> " +
+        "*<PDT table number>" +
         "*<PDT geometry column family name> " +
         "*<PDT geometry column name> " +
         "*<PD tag name> " +
@@ -35,79 +36,95 @@ object OverlayPDT {
     val dltbTableName = args(2)
     val dltbGeoColumnFamily = args(3)
     val dltbGeoColumn = args(4)
-    val pdtTableName = args(5)
-    val pdtGeoColumnFamily = args(6)
-    val pdtGeoColumn = args(7)
-    val pdTagName = args(8)
-    val outputPath = args(9)
+    val pdtTableNamePrefix = args(5)
+    val pdtTableNumber = args(6).toInt
+    val pdtGeoColumnFamily = args(7)
+    val pdtGeoColumn = args(8)
+    val pdTagName = args(9)
+    val outputPath = args(10)
 
     // 设置Spark参数生成Spark上下文
     val sparkConf = new SparkConf().setAppName("OverlayPDT")
     val sc = new SparkContext(sparkConf)
-
     // 设置HBase参数
     val hbaseConf = HBaseConfiguration.create()
     hbaseConf.set("fs.defaultFS", hdfsPath)
     hbaseConf.set("hbase.zookeeper.quorum", serverList)
     hbaseConf.set("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem")
 
+    // 从HBase读取DLTB数据
     var rddDLTB: SpatialRDD = null
-
-    // 如果不进行重分区
-    if (args.length == 10) {
+    if (args.length == 11) { // 如果不进行重分区
       // 从HBase读取DLTB数据
       hbaseConf.set(TableInputFormat.INPUT_TABLE, dltbTableName)
       rddDLTB = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, dltbGeoColumnFamily, dltbGeoColumn)
-    }
-
-    // 如果进行重分区
-    if (args.length == 11) {
+    } else if (args.length == 12) { // 如果进行重分区
       // 获得参数
-      val partitionNum = args(10).toInt
+      val partitionNum = args(11).toInt
       // 从HBase读取DLTB数据
       hbaseConf.set(TableInputFormat.INPUT_TABLE, dltbTableName)
       rddDLTB = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, dltbGeoColumnFamily, dltbGeoColumn, partitionNum)
     }
 
-    // 从HBase读取PDT数据进行广播
-    hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
-    val arrPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn).collect()
-    var bcPDT = sc.broadcast(arrPDT)
-
-    // DLTB叠加PDT
-    val rddDLTBwithPDJB = rddDLTB.map(dltb => {
-      var pdjb = ""
-      var gson = new Gson()
-      // 寻找最大重叠面积的坡度级别
-      var maxOverlayArea = 0.0
-      bcPDT.value.foreach(pdt => {
-        val geohashDltb = dltb._1.split("_")(0)
-        val geohashPdt = pdt._1.split("_")(0)
-        // 如果geohash是包含或相等关系，则两者可以判断为重叠
-        if (geohashDltb.indexOf(geohashPdt) != -1 || geohashPdt.indexOf(geohashDltb) != -1) {
-          println(geohashDltb + " " + geohashPdt)
-          if (dltb._2.geom.getEnvelopeInternal.intersects(pdt._2.geom.getEnvelopeInternal)) {
-            val geomIntersect = pdt._2.geom.intersection(pdt._2.geom) // 叠置分析
-            if (geomIntersect != null) {
-              val overlayArea = geomIntersect.getArea
-              println(overlayArea + " " + maxOverlayArea)
-              if (overlayArea > maxOverlayArea) {
-                maxOverlayArea = overlayArea
-                pdjb = gson.fromJson(pdt._2.tags, classOf[JsonObject]).get(pdTagName).getAsString
-                println("更新为" + maxOverlayArea + " " + pdjb)
+    // 遍历每个PDT表
+    var rddDltbWithPdjb = rddDLTB.map(dltb => (dltb._1, (dltb._2, ("0", 0.0))))
+    var rddPDT: SpatialRDD = null
+    (0 to pdtTableNumber).foreach(i => {
+      val pdtTableName = pdtTableNamePrefix + i
+      if (args.length == 11) { // 如果不进行重分区
+        // 从HBase读取PDT数据
+        hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
+        rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn)
+      } else if (args.length == 12) { // 如果进行重分区
+        // 获得参数
+        val partitionNum = args(11).toInt
+        // 从HBase读取PDT数据
+        hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
+        rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn, partitionNum)
+      }
+      // 从HBase读取PDT数据进行广播
+      val arrPDT = rddPDT.collect()
+      val bcPDT = sc.broadcast(arrPDT)
+      // DLTB叠加PDT
+      rddDltbWithPdjb = rddDltbWithPdjb.map(dltbWithPdjb => {
+        var pdjb = ""
+        var gson = new Gson()
+        // 寻找最大重叠面积的坡度级别
+        var maxOverlayArea = dltbWithPdjb._2._2._2
+        bcPDT.value.foreach(pdt => {
+          val valuesDltv = dltbWithPdjb._1.split("_")
+          val valuesPdt = pdt._1.split("_")
+          // 先判断两个是否属于相同区域
+          val regionDltb = valuesDltv(1).substring(0, 6)
+          val regionPdt = valuesPdt(1).substring(0, 6)
+          if (regionDltb.equals(regionPdt)) {
+            // 如果geohash是包含或相等关系，则两者可以判断为重叠
+            val geohashDltb = valuesDltv(0)
+            val geohashPdt = valuesPdt(0)
+            if (geohashDltb.indexOf(geohashPdt) != -1 || geohashPdt.indexOf(geohashDltb) != -1) {
+              if (dltbWithPdjb._2._1.geom.getEnvelopeInternal.intersects(pdt._2.geom.getEnvelopeInternal)) {
+                val geomIntersect = pdt._2.geom.intersection(pdt._2.geom) // 多边形求交
+                if (geomIntersect != null) {
+                  val overlayArea = geomIntersect.getArea
+                  if (overlayArea > maxOverlayArea) {
+                    maxOverlayArea = overlayArea
+                    pdjb = gson.fromJson(pdt._2.tags, classOf[JsonObject]).get(pdTagName).getAsString
+                  }
+                }
               }
             }
           }
-        }
+        })
+        // 输出每个DLTB对象对应的坡度等级
+        (dltbWithPdjb._1, (dltbWithPdjb._2._1, (pdjb, maxOverlayArea)))
       })
-      // 为DLTB添加坡度字段
-      val dltbTagObj = gson.fromJson(dltb._2.tags, classOf[JsonObject])
-      dltbTagObj.addProperty(pdTagName, pdjb)
-      dltb._2.tags = dltbTagObj.toString
+      bcPDT.unpersist()
     })
 
     // 输出结果到HDFS
-    rddDLTBwithPDJB.saveAsTextFile(outputPath)
+    rddDltbWithPdjb
+      .map(dltbWithPdjb => (dltbWithPdjb._2._1.oid, dltbWithPdjb._2._2._1))
+      .saveAsTextFile(outputPath)
 
     // 关闭Spark上下文
     sc.stop()
