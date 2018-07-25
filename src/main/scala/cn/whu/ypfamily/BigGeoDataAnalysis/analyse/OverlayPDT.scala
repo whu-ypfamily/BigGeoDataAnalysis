@@ -125,6 +125,7 @@ object OverlayPDT {
         // 输出每个DLTB对象对应的坡度等级
         (dltbWithPdjb._1, (dltbWithPdjb._2._1, (pdjb, maxOverlayArea)))
       })
+      bcPDT.unpersist()
     })
 
     // 输出结果到HDFS
