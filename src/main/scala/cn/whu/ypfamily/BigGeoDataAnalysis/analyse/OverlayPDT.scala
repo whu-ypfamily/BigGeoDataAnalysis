@@ -85,25 +85,20 @@ object OverlayPDT {
         val geohashPdt = pdt._1.split("_")(0)
         // 如果geohash是包含或相等关系，则两者可以判断为重叠
         if (geohashDltb.indexOf(geohashPdt) != -1 || geohashPdt.indexOf(geohashDltb) != -1) {
-          println(geohashDltb + " " + geohashPdt)
           if (dltb._2.geom.getEnvelopeInternal.intersects(pdt._2.geom.getEnvelopeInternal)) {
             val geomIntersect = pdt._2.geom.intersection(pdt._2.geom) // 叠置分析
             if (geomIntersect != null) {
               val overlayArea = geomIntersect.getArea
-              println(overlayArea + " " + maxOverlayArea)
               if (overlayArea > maxOverlayArea) {
                 maxOverlayArea = overlayArea
                 pdjb = gson.fromJson(pdt._2.tags, classOf[JsonObject]).get(pdTagName).getAsString
-                println("更新为" + maxOverlayArea + " " + pdjb)
               }
             }
           }
         }
       })
-      // 为DLTB添加坡度字段
-      val dltbTagObj = gson.fromJson(dltb._2.tags, classOf[JsonObject])
-      dltbTagObj.addProperty(pdTagName, pdjb)
-      dltb._2.tags = dltbTagObj.toString
+      // 输出每个DLTB对象对应的坡度等级
+      (dltb._2.oid, pdjb)
     })
 
     // 输出结果到HDFS
