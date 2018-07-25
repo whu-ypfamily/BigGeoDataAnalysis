@@ -110,7 +110,7 @@ object OverlayPDT {
             val geohashPdt = valuesPdt(0)
             if (geohashDltb.indexOf(geohashPdt) != -1 || geohashPdt.indexOf(geohashDltb) != -1) {
               if (dltbWithPdjb._2._1.geom.getEnvelopeInternal.intersects(pdt._2.geom.getEnvelopeInternal)) {
-                val geomIntersect = pdt._2.geom.intersection(pdt._2.geom) // 叠置分析
+                val geomIntersect = pdt._2.geom.intersection(pdt._2.geom) // 多边形求交
                 if (geomIntersect != null) {
                   val overlayArea = geomIntersect.getArea
                   if (overlayArea > maxOverlayArea) {
