@@ -2,7 +2,7 @@ package cn.whu.ypfamily.BigGeoDataAnalysis.util
 
 import ch.hsr.geohash.GeoHash
 import org.locationtech.jts.geom.{Geometry, Point}
-import org.locationtech.jts.io.{WKTReader, WKTWriter}
+import org.locationtech.jts.io.{WKBReader, WKBWriter, WKTReader, WKTWriter}
 
 /**
   * 地理对象工具类
@@ -10,12 +10,32 @@ import org.locationtech.jts.io.{WKTReader, WKTWriter}
 object GsUtil {
 
   /**
+    * 几何对象转WKB
+    *
+    * @param geom 几何对象
+    * @return
+    */
+  def geometry2Wkb(geom: Geometry): Array[Byte] = {
+    new WKBWriter().write(geom)
+  }
+
+  /**
+    * WKB转几何对象
+    *
+    * @param wkb WKB
+    * @return
+    */
+  def wkb2Geometry(wkb: Array[Byte]): Geometry = {
+    new WKBReader().read(wkb)
+  }
+
+  /**
     * 几何对象转WKT字符串
     *
     * @param geom 几何对象
     * @return
     */
-  def geometry2WKT(geom: Geometry): String = {
+  def geometry2Wkt(geom: Geometry): String = {
     new WKTWriter().write(geom)
   }
 

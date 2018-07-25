@@ -52,12 +52,14 @@ object OverlayPDT {
     hbaseConf.set("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem")
 
     var rddDLTB: SpatialRDD = null
+    var rddPDT: SpatialRDD = null
 
     // 如果不进行重分区
     if (args.length == 10) {
       // 从HBase读取DLTB数据
       hbaseConf.set(TableInputFormat.INPUT_TABLE, dltbTableName)
       rddDLTB = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, dltbGeoColumnFamily, dltbGeoColumn)
+      rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn)
     }
 
     // 如果进行重分区
@@ -67,12 +69,13 @@ object OverlayPDT {
       // 从HBase读取DLTB数据
       hbaseConf.set(TableInputFormat.INPUT_TABLE, dltbTableName)
       rddDLTB = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, dltbGeoColumnFamily, dltbGeoColumn, partitionNum)
+      rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn, partitionNum)
     }
 
     // 从HBase读取PDT数据进行广播
     hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
-    val arrPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn).collect()
-    var bcPDT = sc.broadcast(arrPDT)
+    val arrPDT = rddPDT.collect()
+    val bcPDT = sc.broadcast(arrPDT)
 
     // DLTB叠加PDT
     val rddDLTBwithPDJB = rddDLTB.map(dltb => {
@@ -81,17 +84,24 @@ object OverlayPDT {
       // 寻找最大重叠面积的坡度级别
       var maxOverlayArea = 0.0
       bcPDT.value.foreach(pdt => {
-        val geohashDltb = dltb._1.split("_")(0)
-        val geohashPdt = pdt._1.split("_")(0)
-        // 如果geohash是包含或相等关系，则两者可以判断为重叠
-        if (geohashDltb.indexOf(geohashPdt) != -1 || geohashPdt.indexOf(geohashDltb) != -1) {
-          if (dltb._2.geom.getEnvelopeInternal.intersects(pdt._2.geom.getEnvelopeInternal)) {
-            val geomIntersect = pdt._2.geom.intersection(pdt._2.geom) // 叠置分析
-            if (geomIntersect != null) {
-              val overlayArea = geomIntersect.getArea
-              if (overlayArea > maxOverlayArea) {
-                maxOverlayArea = overlayArea
-                pdjb = gson.fromJson(pdt._2.tags, classOf[JsonObject]).get(pdTagName).getAsString
+        val valuesDltv = dltb._1.split("_")
+        val valuesPdt = pdt._1.split("_")
+        // 先判断两个是否属于相同区域
+        val regionDltb = valuesDltv(1).substring(0, 6)
+        val regionPdt = valuesPdt(1).substring(0, 6)
+        if (regionDltb.equals(regionPdt)) {
+          // 如果geohash是包含或相等关系，则两者可以判断为重叠
+          val geohashDltb = valuesDltv(0)
+          val geohashPdt = valuesPdt(0)
+          if (geohashDltb.indexOf(geohashPdt) != -1 || geohashPdt.indexOf(geohashDltb) != -1) {
+            if (dltb._2.geom.getEnvelopeInternal.intersects(pdt._2.geom.getEnvelopeInternal)) {
+              val geomIntersect = pdt._2.geom.intersection(pdt._2.geom) // 叠置分析
+              if (geomIntersect != null) {
+                val overlayArea = geomIntersect.getArea
+                if (overlayArea > maxOverlayArea) {
+                  maxOverlayArea = overlayArea
+                  pdjb = gson.fromJson(pdt._2.tags, classOf[JsonObject]).get(pdTagName).getAsString
+                }
               }
             }
           }

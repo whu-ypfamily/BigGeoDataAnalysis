@@ -79,11 +79,9 @@ class SpatialRDD(val rddPrev: RDD[(String, GeoObject)])
 
     // 将SpatialRDD中的每对数据转化成数据表中的一行
     val rddRow = this.map(data => {
-      // 将每个地理对象转成WKT格式
-      val strWKT = GsUtil.geometry2WKT(data._2.geom)
       // 创建HBase每行数据
       val put = new Put(Bytes.toBytes(data._1))
-      put.addColumn(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier), Bytes.toBytes(strWKT))
+      put.addColumn(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier), GsUtil.geometry2Wkb(data._2.geom))
       put.addColumn(Bytes.toBytes(strGsFamily), Bytes.toBytes("oid"), Bytes.toBytes(data._2.oid))
       put.addColumn(Bytes.toBytes(strGsFamily), Bytes.toBytes("tags"), Bytes.toBytes(data._2.tags.toString))
       // 输出格式
@@ -117,13 +115,10 @@ object SpatialRDD {
     // 从每行数据中解析出空间对象
     val rddSpatialData = rddHBaseData.map(data => {
       val strKey = Bytes.toString(data._2.getRow)
-      val strWKT = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier)))
+      val wkb = data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier))
       val oid = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes("oid")))
       val tags = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes("tags")))
-      var geom = GsUtil.wkt2Geometry(strWKT)
-      if (!geom.isValid) {
-        geom = geom.buffer(0)
-      }
+      val geom = GsUtil.wkb2Geometry(wkb)
       (strKey, new GeoObject(geom, oid, tags))
     })
 
@@ -154,10 +149,10 @@ object SpatialRDD {
         val rand = new Random()
         val key = rand.nextInt(numPartition)
         val strKey = Bytes.toString(data._2.getRow)
-        val strWKT = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier)))
+        val wkb = data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier))
         val oid = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes("oid")))
         val tags = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes("tags")))
-        val geom = GsUtil.wkt2Geometry(strWKT)
+        val geom = GsUtil.wkb2Geometry(wkb)
         (key, (strKey, new GeoObject(geom, oid, tags)))
       })
 
@@ -214,13 +209,10 @@ object SpatialRDD {
     // 从每行数据中解析出空间对象
     val rddSpatialData = rddList.filter(_ != null).reduce(_.union(_)).map(data => {
       val strKey = Bytes.toString(data._2.getRow)
-      val strWKT = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier)))
+      val wkb = data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier))
       val oid = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes("oid")))
       val tags = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes("tags")))
-      var geom = GsUtil.wkt2Geometry(strWKT)
-      if (!geom.isValid) {
-        geom = geom.buffer(0)
-      }
+      val geom = GsUtil.wkb2Geometry(wkb)
       (strKey, new GeoObject(geom, oid, tags))
     })
 
@@ -278,13 +270,10 @@ object SpatialRDD {
     // 从每行数据中解析出空间对象
     val rddSpatialData = rddHBaseData.map(data => {
       val strKey = Bytes.toString(data._2.getRow)
-      val strWKT = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier)))
+      val wkb = data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes(strGsQualifier))
       val oid = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes("oid")))
       val tags = Bytes.toString(data._2.getValue(Bytes.toBytes(strGsFamily), Bytes.toBytes("tags")))
-      var geom = GsUtil.wkt2Geometry(strWKT)
-      if (!geom.isValid) {
-        geom = geom.buffer(0)
-      }
+      val geom = GsUtil.wkb2Geometry(wkb)
       (strKey, new GeoObject(geom, oid, tags))
     })
 
