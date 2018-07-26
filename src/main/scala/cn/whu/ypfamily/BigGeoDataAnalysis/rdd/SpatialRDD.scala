@@ -49,7 +49,7 @@ class SpatialRDD(val rddPrev: RDD[(String, GeoObject)])
         var intersects = false
         val coordinates = geoObj._2.geom.getCoordinates
         var count = 0
-        while (count < coordinates.length && !intersects){
+        while (count < coordinates.length && !intersects) {
           if (geoQueryWindow.contains(coordinates(count))) {
             intersects = true
           }
@@ -94,6 +94,88 @@ class SpatialRDD(val rddPrev: RDD[(String, GeoObject)])
 }
 
 object SpatialRDD {
+
+  /**
+    * 从HDFS生成SpatialRDD
+    *
+    * @param sparkContext Spark上下文
+    * @param hdfsPath     HDFS文件路径
+    * @return
+    */
+  def createSpatialRDDFromHDFS(sparkContext: SparkContext,
+                               hdfsPath: String): SpatialRDD = {
+    // 读取HDFS数据
+    val rddHDFS = sparkContext.textFile(hdfsPath).filter(line => {
+      val wkt = line.split("\t")(0)
+      if (wkt.contains("POLYGON") || wkt.contains("LINESTRING") || wkt.contains("POINT")) {
+        true
+      } else {
+        false
+      }
+    })
+
+    // 解析空间对象
+    val rddSpatialData = rddHDFS.map(line => {
+      val values = line.split("\t")
+      var geom = GsUtil.wkt2Geometry(values(0))
+      if (geom != null) {
+        if (!geom.isValid) { // 修正拓扑错误
+          geom = geom.buffer(0)
+        }
+      }
+      val strKey = GsUtil.geometry2Geohash(geom) + "_" + values(1)
+      (strKey, new GeoObject(geom, values(1), values(2)))
+    })
+
+    // 生成SpatialRDD返回
+    new SpatialRDD(rddSpatialData)
+  }
+
+  /**
+    * 从HDFS生成SpatialRDD，需设置partition数量
+    *
+    * @param sparkContext Spark上下文
+    * @param hdfsPath     HDFS文件路径
+    * @param numPartition 分区数
+    * @return
+    */
+  def createSpatialRDDFromHDFS(sparkContext: SparkContext,
+                               hdfsPath: String,
+                               numPartition: Int): SpatialRDD = {
+    // 读取HDFS数据
+    var rddHDFSData = sparkContext.textFile(hdfsPath).filter(line => {
+      val wkt = line.split("\t")(0)
+      if (wkt.contains("POLYGON") || wkt.contains("LINESTRING") || wkt.contains("POINT")) {
+        true
+      } else {
+        false
+      }
+    }).map(line => {
+      val rand = new Random()
+      val key = rand.nextInt(numPartition)
+      (key, line)
+    })
+
+    // 重分区
+    rddHDFSData = rddHDFSData.repartition(numPartition)
+
+    // 解析空间对象
+    val rddSpatialData = rddHDFSData.map(line => {
+      val values = line._2.split("\t")
+      var geom = GsUtil.wkt2Geometry(values(0))
+      if (geom != null) {
+        if (!geom.isValid) { // 修正拓扑错误
+          geom = geom.buffer(0)
+        }
+      }
+      val strKey = GsUtil.geometry2Geohash(geom) + "_" + values(1)
+      (strKey, new GeoObject(geom, values(1), values(2)))
+    })
+
+    // 生成SpatialRDD返回
+    new SpatialRDD(rddSpatialData)
+  }
+
   /**
     * 从HBase生成SpatialRDD
     *
@@ -108,7 +190,7 @@ object SpatialRDD {
                                 strGsFamily: String,
                                 strGsQualifier: String): SpatialRDD = {
     // 从HBase获取每行数据
-    val rddHBaseData = sparkContext.newAPIHadoopRDD(hbaseConf, classOf[TableInputFormat],
+    var rddHBaseData = sparkContext.newAPIHadoopRDD(hbaseConf, classOf[TableInputFormat],
       classOf[org.apache.hadoop.hbase.io.ImmutableBytesWritable],
       classOf[org.apache.hadoop.hbase.client.Result])
 
@@ -145,7 +227,7 @@ object SpatialRDD {
     var rddHBaseData = sparkContext.newAPIHadoopRDD(hbaseConf, classOf[TableInputFormat],
       classOf[org.apache.hadoop.hbase.io.ImmutableBytesWritable],
       classOf[org.apache.hadoop.hbase.client.Result])
-      .map(data => {
+      .map(data => { // 从每行数据中解析出空间对象
         val rand = new Random()
         val key = rand.nextInt(numPartition)
         val strKey = Bytes.toString(data._2.getRow)
@@ -157,13 +239,9 @@ object SpatialRDD {
       })
 
     // 重分区
-    if (rddHBaseData.getNumPartitions > numPartition) {
-      rddHBaseData = rddHBaseData.coalesce(numPartition)
-    } else {
-      rddHBaseData = rddHBaseData.repartition(numPartition)
-    }
+    rddHBaseData = rddHBaseData.repartition(numPartition)
 
-    // 从每行数据中解析出空间对象
+    // 验证几何对象
     val rddSpatialData = rddHBaseData.map(data => {
       if (!data._2._2.geom.isValid) {
         data._2._2.geom = data._2._2.geom.buffer(0)
@@ -257,15 +335,9 @@ object SpatialRDD {
         })
     })
 
-    // 合并
+    // 合并重分区
     var rddHBaseData = rddList.filter(_ != null).reduce(_.union(_))
-
-    // 重分区
-    if (rddHBaseData.getNumPartitions > numPartition) {
-      rddHBaseData = rddHBaseData.coalesce(numPartition)
-    } else {
-      rddHBaseData = rddHBaseData.repartition(numPartition)
-    }
+    rddHBaseData = rddHBaseData.repartition(numPartition)
 
     // 从每行数据中解析出空间对象
     val rddSpatialData = rddHBaseData.map(data => {

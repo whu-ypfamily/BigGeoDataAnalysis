@@ -1,5 +1,6 @@
 package cn.whu.ypfamily.BigGeoDataAnalysis.analyse
 
+import java.util
 import java.util.Date
 
 import cn.whu.ypfamily.BigGeoDataAnalysis.rdd.SpatialRDD
@@ -10,17 +11,17 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object OverlayPDT {
   def main(args: Array[String]): Unit = {
-    if (args.length < 11 || args.length > 13) {
+    if (args.length < 11 || args.length > 12) {
       println("input " +
         "*<hdfs path> " +
         "*<zookeeper server list> " +
         "*<DLTB table name> " +
         "*<DLTB geometry column family name> " +
         "*<DLTB geometry column name> " +
-        "*<PDT table name prefix> " +
-        "*<PDT table number>" +
+        "*<PDT table name> " +
         "*<PDT geometry column family name> " +
         "*<PDT geometry column name> " +
+        "*<batch number>" +
         "*<PD tag name> " +
         "*<output path>" +
         "<partition number>")
@@ -36,10 +37,10 @@ object OverlayPDT {
     val dltbTableName = args(2)
     val dltbGeoColumnFamily = args(3)
     val dltbGeoColumn = args(4)
-    val pdtTableNamePrefix = args(5)
-    val pdtTableNumber = args(6).toInt
-    val pdtGeoColumnFamily = args(7)
-    val pdtGeoColumn = args(8)
+    val pdtTableName = args(5)
+    val pdtGeoColumnFamily = args(6)
+    val pdtGeoColumn = args(7)
+    val numBatch = args(8).toInt
     val pdTagName = args(9)
     val outputPath = args(10)
 
@@ -52,46 +53,47 @@ object OverlayPDT {
     hbaseConf.set("hbase.zookeeper.quorum", serverList)
     hbaseConf.set("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem")
 
-    // 从HBase读取DLTB数据
+    // 从HBase读取DLTB和PDT数据
     var rddDLTB: SpatialRDD = null
+    var rddPDT: SpatialRDD = null
     if (args.length == 11) { // 如果不进行重分区
-      // 从HBase读取DLTB数据
       hbaseConf.set(TableInputFormat.INPUT_TABLE, dltbTableName)
       rddDLTB = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, dltbGeoColumnFamily, dltbGeoColumn)
+      hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
+      rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn)
     } else if (args.length == 12) { // 如果进行重分区
-      // 获得参数
-      val partitionNum = args(11).toInt
-      // 从HBase读取DLTB数据
+      val partitionNum = args(11).toInt // 获得参数
       hbaseConf.set(TableInputFormat.INPUT_TABLE, dltbTableName)
       rddDLTB = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, dltbGeoColumnFamily, dltbGeoColumn, partitionNum)
+      hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
+      rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn, partitionNum)
     }
+
+    // 将PDT数据收集到主节点，按batchNumber个对象分批次广播
+    val arrPDT = rddPDT.collect()
+    val numberInBatch = Math.ceil(arrPDT.length.toDouble / numBatch).toInt
+    println("每批次数据量：" + numberInBatch)
 
     // 遍历每个PDT表
     var rddDltbWithPdjb = rddDLTB.map(dltb => (dltb._1, (dltb._2, ("0", 0.0))))
-    var rddPDT: SpatialRDD = null
-    (0 to pdtTableNumber).foreach(i => {
-      val pdtTableName = pdtTableNamePrefix + i
-      if (args.length == 11) { // 如果不进行重分区
-        // 从HBase读取PDT数据
-        hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
-        rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn)
-      } else if (args.length == 12) { // 如果进行重分区
-        // 获得参数
-        val partitionNum = args(11).toInt
-        // 从HBase读取PDT数据
-        hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
-        rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn, partitionNum)
+    var rddDltbWithPdjbCache = rddDltbWithPdjb.cache()
+    rddDltbWithPdjb.count() // 触发map操作
+    (0 to numBatch).foreach(i => {
+      // 获取该批次PDT数组进行广播
+      val batchStart = i * numberInBatch
+      var batchEnd = (i+1) * numberInBatch
+      if (batchEnd > arrPDT.length) {
+        batchEnd = arrPDT.length
       }
-      // 从HBase读取PDT数据进行广播
-      val arrPDT = rddPDT.collect()
-      val bcPDT = sc.broadcast(arrPDT)
+      val arrBatchPDT = util.Arrays.copyOfRange(arrPDT, batchStart, batchEnd)
+      val bcBatchPDT = sc.broadcast(arrBatchPDT)
       // DLTB叠加PDT
       rddDltbWithPdjb = rddDltbWithPdjb.map(dltbWithPdjb => {
-        var pdjb = ""
         var gson = new Gson()
         // 寻找最大重叠面积的坡度级别
+        var pdjb = dltbWithPdjb._2._2._1
         var maxOverlayArea = dltbWithPdjb._2._2._2
-        bcPDT.value.foreach(pdt => {
+        bcBatchPDT.value.foreach(pdt => {
           val valuesDltv = dltbWithPdjb._1.split("_")
           val valuesPdt = pdt._1.split("_")
           // 先判断两个是否属于相同区域
@@ -118,13 +120,19 @@ object OverlayPDT {
         // 输出每个DLTB对象对应的坡度等级
         (dltbWithPdjb._1, (dltbWithPdjb._2._1, (pdjb, maxOverlayArea)))
       })
-      bcPDT.unpersist()
+      if (i < numBatch-1) {
+        val rddDltbWithPdjbNewCache = rddDltbWithPdjb.cache()
+        rddDltbWithPdjb.count() // 触发map操作
+        rddDltbWithPdjbCache.unpersist()
+        rddDltbWithPdjbCache = rddDltbWithPdjbNewCache
+      }
     })
 
     // 输出结果到HDFS
     rddDltbWithPdjb
       .map(dltbWithPdjb => (dltbWithPdjb._2._1.oid, dltbWithPdjb._2._2._1))
       .saveAsTextFile(outputPath)
+    rddDltbWithPdjb.unpersist()
 
     // 关闭Spark上下文
     sc.stop()
