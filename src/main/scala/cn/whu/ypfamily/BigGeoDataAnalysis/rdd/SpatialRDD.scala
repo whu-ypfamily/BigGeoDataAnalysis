@@ -123,8 +123,8 @@ object SpatialRDD {
           geom = geom.buffer(0)
         }
       }
-      val strKey = GsUtil.geometry2Geohash(geom)
-      (strKey, new GeoObject(geom, values(0), values(1)))
+      val strKey = GsUtil.geometry2Geohash(geom) + "_" + values(1)
+      (strKey, new GeoObject(geom, values(1), values(2)))
     })
 
     // 生成SpatialRDD返回
@@ -168,8 +168,8 @@ object SpatialRDD {
           geom = geom.buffer(0)
         }
       }
-      val strKey = GsUtil.geometry2Geohash(geom)
-      (strKey, new GeoObject(geom, values(0), values(1)))
+      val strKey = GsUtil.geometry2Geohash(geom) + "_" + values(1)
+      (strKey, new GeoObject(geom, values(1), values(2)))
     })
 
     // 生成SpatialRDD返回
