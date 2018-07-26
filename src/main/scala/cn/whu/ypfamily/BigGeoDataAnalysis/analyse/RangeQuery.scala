@@ -12,7 +12,7 @@ object RangeQuery {
 
   def main(args: Array[String]): Unit = {
 
-    if (args.length < 6) {
+    if (args.length < 6 || args.length > 7) {
       println("input " +
         "*<hdfs path> " +
         "*<zookeeper server list> " +

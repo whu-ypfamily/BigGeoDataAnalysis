@@ -10,6 +10,27 @@ import org.locationtech.jts.io.{WKBReader, WKBWriter, WKTReader, WKTWriter}
 object GsUtil {
 
   /**
+    * 获取几何对象Geohash编码
+    *
+    * @param geom 几何对象
+    * @return
+    */
+  def geometry2Geohash(geom: Geometry): String = {
+    val env = geom.getEnvelopeInternal
+    val minX = env.getMinX
+    val maxX = env.getMaxX
+    val minY = env.getMinY
+    val maxY = env.getMaxY
+    val arrGeoHashes = Array(
+      GeoHash.geoHashStringWithCharacterPrecision(minY, minX, 12),
+      GeoHash.geoHashStringWithCharacterPrecision(minY, maxX, 12),
+      GeoHash.geoHashStringWithCharacterPrecision(maxY, maxX, 12),
+      GeoHash.geoHashStringWithCharacterPrecision(maxY, minX, 12)
+    )
+    TextUtil.longestCommonPrefix(arrGeoHashes)
+  }
+
+  /**
     * 几何对象转WKB
     *
     * @param geom 几何对象

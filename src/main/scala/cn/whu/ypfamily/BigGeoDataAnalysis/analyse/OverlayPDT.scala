@@ -10,7 +10,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object OverlayPDT {
   def main(args: Array[String]): Unit = {
-    if (args.length < 11 || args.length > 13) {
+    if (args.length < 11 || args.length > 12) {
       println("input " +
         "*<hdfs path> " +
         "*<zookeeper server list> " +
@@ -55,13 +55,10 @@ object OverlayPDT {
     // 从HBase读取DLTB数据
     var rddDLTB: SpatialRDD = null
     if (args.length == 11) { // 如果不进行重分区
-      // 从HBase读取DLTB数据
       hbaseConf.set(TableInputFormat.INPUT_TABLE, dltbTableName)
       rddDLTB = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, dltbGeoColumnFamily, dltbGeoColumn)
     } else if (args.length == 12) { // 如果进行重分区
-      // 获得参数
-      val partitionNum = args(11).toInt
-      // 从HBase读取DLTB数据
+      val partitionNum = args(11).toInt // 获得参数
       hbaseConf.set(TableInputFormat.INPUT_TABLE, dltbTableName)
       rddDLTB = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, dltbGeoColumnFamily, dltbGeoColumn, partitionNum)
     }
@@ -71,14 +68,12 @@ object OverlayPDT {
     var rddPDT: SpatialRDD = null
     (0 to pdtTableNumber).foreach(i => {
       val pdtTableName = pdtTableNamePrefix + i
+      // 从HBase读取PDT数据
       if (args.length == 11) { // 如果不进行重分区
-        // 从HBase读取PDT数据
         hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
         rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn)
       } else if (args.length == 12) { // 如果进行重分区
-        // 获得参数
-        val partitionNum = args(11).toInt
-        // 从HBase读取PDT数据
+        val partitionNum = args(11).toInt // 获得参数
         hbaseConf.set(TableInputFormat.INPUT_TABLE, pdtTableName)
         rddPDT = SpatialRDD.createSpatialRDDFromHBase(sc, hbaseConf, pdtGeoColumnFamily, pdtGeoColumn, partitionNum)
       }
@@ -87,7 +82,7 @@ object OverlayPDT {
       val bcPDT = sc.broadcast(arrPDT)
       // DLTB叠加PDT
       rddDltbWithPdjb = rddDltbWithPdjb.map(dltbWithPdjb => {
-        var pdjb = ""
+        var pdjb = "0"
         var gson = new Gson()
         // 寻找最大重叠面积的坡度级别
         var maxOverlayArea = dltbWithPdjb._2._2._2
@@ -119,6 +114,7 @@ object OverlayPDT {
         (dltbWithPdjb._1, (dltbWithPdjb._2._1, (pdjb, maxOverlayArea)))
       })
       bcPDT.unpersist()
+      bcPDT.destroy()
     })
 
     // 输出结果到HDFS
