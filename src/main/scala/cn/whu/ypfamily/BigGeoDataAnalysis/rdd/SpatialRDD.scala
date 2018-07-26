@@ -105,7 +105,14 @@ object SpatialRDD {
   def createSpatialRDDFromHDFS(sparkContext: SparkContext,
                                hdfsPath: String): SpatialRDD = {
     // 读取HDFS数据
-    val rddHDFS = sparkContext.textFile(hdfsPath)
+    val rddHDFS = sparkContext.textFile(hdfsPath).filter(line => {
+      val wkt = line.split("\t")(0)
+      if (wkt.contains("POLYGON") || wkt.contains("LINESTRING") || wkt.contains("POINT")) {
+        true
+      } else {
+        false
+      }
+    })
 
     // 解析空间对象
     val rddSpatialData = rddHDFS.map(line => {
@@ -136,7 +143,14 @@ object SpatialRDD {
                                hdfsPath: String,
                                numPartition: Int): SpatialRDD = {
     // 读取HDFS数据
-    var rddHDFSData = sparkContext.textFile(hdfsPath).map(line => {
+    var rddHDFSData = sparkContext.textFile(hdfsPath).filter(line => {
+      val wkt = line.split("\t")(0)
+      if (wkt.contains("POLYGON") || wkt.contains("LINESTRING") || wkt.contains("POINT")) {
+        true
+      } else {
+        false
+      }
+    }).map(line => {
       val rand = new Random()
       val key = rand.nextInt(numPartition)
       (key, line)

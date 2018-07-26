@@ -45,7 +45,7 @@ object OverlayPDT_HDFS {
     // 遍历每个PDT文件
     var rddDltbWithPdjb = rddDLTB.map(dltb => (dltb._1, (dltb._2, ("0", 0.0))))
     var rddPDT: SpatialRDD = null
-    (0 to pdtFileNumber).foreach(i => {
+    (0 until pdtFileNumber).foreach(i => {
       val pdtFilePath = pdtFilePathPrefix + i
       // 从HDFS读取PDT数据
       if (args.length == 5) { // 如果不进行重分区
