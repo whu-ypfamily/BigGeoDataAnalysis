@@ -4,16 +4,12 @@ import java.util.Date
 
 import cn.whu.ypfamily.BigGeoDataAnalysis.rdd.SpatialRDD
 import com.google.gson.{Gson, JsonObject}
-import org.apache.hadoop.hbase.HBaseConfiguration
-import org.apache.hadoop.hbase.mapreduce.TableInputFormat
 import org.apache.spark.{SparkConf, SparkContext}
 
 object OverlayPDT_HDFS {
   def main(args: Array[String]): Unit = {
-    if (args.length < 7 || args.length > 8) {
+    if (args.length < 5 || args.length > 6) {
       println("input " +
-        "*<hdfs path> " +
-        "*<zookeeper server list> " +
         "*<DLTB file path> " +
         "*<PDT file path prefix> " +
         "*<PDT file number>" +
@@ -27,13 +23,11 @@ object OverlayPDT_HDFS {
     val startTime = new Date().getTime
 
     // 获取参数
-    val hdfsPath = args(0)
-    val serverList = args(1)
-    val dltbFilePath = args(2)
-    val pdtFilePathPrefix = args(3)
-    val pdtFileNumber = args(4).toInt
-    val pdTagName = args(5)
-    val outputPath = args(6)
+    val dltbFilePath = args(0)
+    val pdtFilePathPrefix = args(1)
+    val pdtFileNumber = args(2).toInt
+    val pdTagName = args(3)
+    val outputPath = args(4)
 
     // 设置Spark参数生成Spark上下文
     val sparkConf = new SparkConf().setAppName("OverlayPDT")
@@ -41,10 +35,10 @@ object OverlayPDT_HDFS {
 
     // 从HBase读取DLTB数据
     var rddDLTB: SpatialRDD = null
-    if (args.length == 7) { // 如果不进行重分区
+    if (args.length == 5) { // 如果不进行重分区
       rddDLTB = SpatialRDD.createSpatialRDDFromHDFS(sc, dltbFilePath)
-    } else if (args.length == 8) { // 如果进行重分区
-      val partitionNum = args(7).toInt // 获得参数
+    } else if (args.length == 6) { // 如果进行重分区
+      val partitionNum = args(5).toInt // 获得参数
       rddDLTB = SpatialRDD.createSpatialRDDFromHDFS(sc, dltbFilePath, partitionNum)
     }
 
@@ -54,10 +48,10 @@ object OverlayPDT_HDFS {
     (0 to pdtFileNumber).foreach(i => {
       val pdtFilePath = pdtFilePathPrefix + i
       // 从HDFS读取PDT数据
-      if (args.length == 7) { // 如果不进行重分区
+      if (args.length == 5) { // 如果不进行重分区
         rddPDT = SpatialRDD.createSpatialRDDFromHDFS(sc, pdtFilePath)
-      } else if (args.length == 8) { // 如果进行重分区
-        val partitionNum = args(7).toInt // 获得参数
+      } else if (args.length == 6) { // 如果进行重分区
+        val partitionNum = args(5).toInt // 获得参数
         rddPDT = SpatialRDD.createSpatialRDDFromHDFS(sc, pdtFilePath, partitionNum)
       }
       // 对PDT数据进行广播
